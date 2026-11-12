@@ -123,9 +123,9 @@ class SoClient:
         session_id: str | None = None,
         model: str = "deepseek-v3",
     ) -> AIAnswer:
-        """调用元宝 AI 问答（query_get），聚合 SSE 流为完整回答。
+        """元宝 AI 问答（query_get），SSE 流聚合为完整回答。
 
-        session_id 复用即可多轮追问；不传则新建会话。
+        session_id 复用即多轮；不传则新建。
         """
         query = query.strip()[:1000]
         if not query:
@@ -233,7 +233,7 @@ class SoClient:
     async def web_search(
         self, query: str, tab: str = "all", limit: int = 10
     ) -> list[WebResult]:
-        """普通网页搜索（SSR 页面解析）。tab 见 VALID_TABS。"""
+        """网页搜索，解析 SSR 页面。tab 见 VALID_TABS。"""
         query = query.strip()
         if not query:
             raise ValueError("query 不能为空")
@@ -292,7 +292,7 @@ class SoClient:
     # ------------------------------------------------------------------ 图片搜索
 
     async def pic_search(self, query: str, limit: int = 10) -> list[PicResult]:
-        """图片搜索。结果嵌在页面 window.__INITIAL_STATE__ 的 searchList 中。"""
+        """图片搜索，解析页面内嵌 __INITIAL_STATE__。"""
         query = query.strip()
         if not query:
             raise ValueError("query 不能为空")

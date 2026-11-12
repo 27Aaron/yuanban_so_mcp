@@ -1,8 +1,8 @@
 """yuanban_so_mcp: 腾讯元宝搜索 MCP server (stdio)。
 
 工具：
-- yuanbao_search: AI 问答（支持多轮 session）
-- web_search:     普通网页搜索（支持学术/公众号/视频垂直 tab）
+- yuanbao_search: AI 问答（多轮 session）
+- web_search:     网页搜索（学术/公众号/视频 tab）
 - pic_search:     图片搜索（缩略图/原图/来源页）
 """
 
@@ -16,40 +16,36 @@ mcp = MCPServer(
     name="yuanban_so_mcp",
     instructions=(
         "腾讯元宝搜索（so.qq.com）工具集。"
-        "需要带引用来源的深度问答用 yuanbao_search（可传 session_id 多轮追问）；"
-        "需要快速网页结果列表用 web_search。"
+        "AI 问答用 yuanbao_search（传 session_id 可多轮）；"
+        "网页结果用 web_search；"
+        "图片素材用 pic_search。"
     ),
 )
 
 
 @mcp.tool()
 async def yuanbao_search(query: str, session_id: str | None = None) -> str:
-    """腾讯元宝 AI 搜索问答（底层为元宝大模型，联网检索增强）。
+    """元宝 AI 搜索问答，回答含 [citation:N] 引用标记。
 
-    回答中的 [citation:N] 为引用标记。返回末尾附带 session_id，
-    再次传入同一 session_id 即可基于上文继续追问（多轮对话）。
+    传入上次返回的 session_id 可继续追问。
 
     Args:
-        query: 问题或指令。
-        session_id: 可选。传入上一次返回的 session_id 可延续多轮对话；留空则新建会话。
+        query: 问题。
+        session_id: 上次返回的会话 id，留空则新建。
     """
     client = get_client()
     result = await client.ask(query, session_id=session_id)
-    footer = (
-        f"\n\n---\nsession_id: `{result.session_id}`"
-        f"（追问时传入此 id 可延续对话）"
-    )
-    return result.answer + footer
+    return result.answer + f"\n\n---\nsession_id: `{result.session_id}`"
 
 
 @mcp.tool()
 async def web_search(query: str, tab: str = "all", limit: int = 10) -> str:
-    """搜狗/元宝网页搜索，返回标题、链接、摘要列表。
+    """网页搜索，返回标题、链接、摘要。
 
     Args:
-        query: 搜索关键词。
-        tab: 垂直频道：all(综合) / xueshu(学术) / weixin_article(公众号) / weixin_video(视频)。
-        limit: 返回条数上限（默认 10，最大 20）。
+        query: 关键词。
+        tab: all(综合) / xueshu(学术) / weixin_article(公众号) / weixin_video(视频)。
+        limit: 条数，1-20。
     """
     if tab not in VALID_TABS:
         return f"不支持的 tab: {tab}，可选: {sorted(VALID_TABS)}"
@@ -68,11 +64,11 @@ async def web_search(query: str, tab: str = "all", limit: int = 10) -> str:
 
 @mcp.tool()
 async def pic_search(query: str, limit: int = 10) -> str:
-    """图片搜索，返回缩略图、原图、来源页链接及尺寸。
+    """图片搜索，返回缩略图、原图、来源页及尺寸。
 
     Args:
-        query: 搜索关键词。
-        limit: 返回条数上限（默认 10，最大 20）。
+        query: 关键词。
+        limit: 条数，1-20。
     """
     limit = max(1, min(int(limit), 20))
     client = get_client()

@@ -1,7 +1,7 @@
 [project]
 name = "yuanban_so_mcp"
 version = "0.1.0"
-description = "腾讯元宝搜索（so.qq.com）MCP server：AI 问答与网页搜索"
+description = "腾讯元宝搜索（so.qq.com）MCP server：AI 问答、网页搜索与图片搜索"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
