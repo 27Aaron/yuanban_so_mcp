@@ -1,7 +1,8 @@
-"""so.qq.com（腾讯元宝搜索）客户端：AI 问答 / 网页搜索。
+"""so.qq.com（腾讯元宝搜索）客户端：AI 问答 / 网页搜索 / 图片搜索。
 
 - AI 问答: POST https://lizhiassistant.search.qq.com/browser_aimode/aimode/query_get（SSE 流式）
 - 网页搜索: GET https://so.qq.com/isearch（SSR 页面解析）
+- 图片搜索: GET https://so.qq.com/ipics（页面内嵌 window.__INITIAL_STATE__ JSON）
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 import secrets
 import time
 import uuid
@@ -28,13 +30,14 @@ QUERY_GET_URL = (
     "https://lizhiassistant.search.qq.com/browser_aimode/aimode/query_get"
 )
 ISEARCH_URL = "https://so.qq.com/isearch"
+IPICS_URL = "https://so.qq.com/ipics"
 
 DEFAULT_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
-# 垂直搜索 tab（图片走独立路径 /ipics，暂不支持）
+# 网页搜索的垂直 tab
 VALID_TABS = {"all", "xueshu", "weixin_article", "weixin_video"}
 
 # 请求间隔，避免请求过于频繁
@@ -72,6 +75,17 @@ class WebResult:
     url: str
     summary: str
     site: str
+
+
+@dataclass
+class PicResult:
+    title: str
+    thumb_url: str
+    image_url: str
+    source_url: str
+    site: str
+    width: int | None = None
+    height: int | None = None
 
 
 @dataclass
@@ -274,6 +288,82 @@ class SoClient:
             if len(results) >= limit:
                 break
         return results
+
+    # ------------------------------------------------------------------ 图片搜索
+
+    async def pic_search(self, query: str, limit: int = 10) -> list[PicResult]:
+        """图片搜索。结果嵌在页面 window.__INITIAL_STATE__ 的 searchList 中。"""
+        query = query.strip()
+        if not query:
+            raise ValueError("query 不能为空")
+
+        await self._throttle()
+        async with httpx.AsyncClient(timeout=self.timeout_web, follow_redirects=True) as http:
+            resp = await http.get(
+                IPICS_URL,
+                params={"query": query},
+                headers=self._headers("https://so.qq.com/", "text/html"),
+            )
+            resp.raise_for_status()
+
+        state = self._extract_initial_state(resp.text)
+        items = ((state.get("searchList") or {}).get("searchList")) or []
+        results: list[PicResult] = []
+        seen: set[str] = set()
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            thumb = it.get("thumbUrl") or ""
+            if not thumb or thumb in seen:
+                continue
+            seen.add(thumb)
+            results.append(
+                PicResult(
+                    title=(it.get("title") or "").strip()[:120],
+                    thumb_url=thumb,
+                    image_url=it.get("oriPicUrl") or thumb,
+                    source_url=it.get("url") or "",
+                    site=(it.get("ch_site_name") or "").strip(),
+                    width=it.get("width"),
+                    height=it.get("height"),
+                )
+            )
+            if len(results) >= limit:
+                break
+        return results
+
+    @staticmethod
+    def _extract_initial_state(html: str) -> dict[str, Any]:
+        """提取并解析页面内嵌的 window.__INITIAL_STATE__ JSON。"""
+        m = re.search(r"window\.__INITIAL_STATE__\s*=\s*", html)
+        if not m:
+            raise RuntimeError("页面未包含 __INITIAL_STATE__，接口可能已调整")
+        start = m.end()
+        depth = 0
+        in_str = esc = False
+        for j in range(start, min(start + 2_000_000, len(html))):
+            c = html[j]
+            if in_str:
+                if esc:
+                    esc = False
+                elif c == "\\":
+                    esc = True
+                elif c == '"':
+                    in_str = False
+                continue
+            if c == '"':
+                in_str = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(html[start : j + 1])
+                    except json.JSONDecodeError as e:
+                        raise RuntimeError(f"__INITIAL_STATE__ 解析失败: {e}") from e
+        raise RuntimeError("__INITIAL_STATE__ 边界未找到")
+
 
 _client: SoClient | None = None
 
